@@ -4,3 +4,9 @@ venv/
 # Dataset folders
 datasets/
 unified_dataset/
+
+#uploads
+uploads/
+
+#cache files
+__pycache__/

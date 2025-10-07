@@ -22,9 +22,13 @@ notebook>=6.5.0
 ipykernel>=6.22.0
 ipywidgets>=8.0.0
 
-# Web Framework (for deployment)
+# Web Framework (Flask Application)
 Flask>=2.3.0
 flask-cors>=4.0.0
+Werkzeug>=2.3.0
+
+# OpenAI API (Optional - for enhanced medical reports)
+openai>=1.0.0
 
 # Kaggle API (for dataset download)
 kaggle>=1.5.16
