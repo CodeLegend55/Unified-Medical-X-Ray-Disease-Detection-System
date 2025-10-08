@@ -59,7 +59,16 @@ class UnifiedMedicalModel:
             try:
                 self.resnet_model = models.resnet50(weights=None)
                 num_features = self.resnet_model.fc.in_features
-                self.resnet_model.fc = nn.Linear(num_features, len(UNIFIED_CLASSES))
+                
+                # IMPORTANT: Match the exact architecture from training
+                self.resnet_model.fc = nn.Sequential(
+                    nn.Dropout(0.5),
+                    nn.Linear(num_features, 512),
+                    nn.ReLU(),
+                    nn.BatchNorm1d(512),
+                    nn.Dropout(0.3),
+                    nn.Linear(512, len(UNIFIED_CLASSES))
+                )
                 
                 state_dict = torch.load(resnet_path, map_location=self.device, weights_only=False)
                 
@@ -93,7 +102,16 @@ class UnifiedMedicalModel:
             try:
                 self.densenet_model = models.densenet121(weights=None)
                 num_features = self.densenet_model.classifier.in_features
-                self.densenet_model.classifier = nn.Linear(num_features, len(UNIFIED_CLASSES))
+                
+                # IMPORTANT: Match the exact architecture from training
+                self.densenet_model.classifier = nn.Sequential(
+                    nn.Dropout(0.5),
+                    nn.Linear(num_features, 512),
+                    nn.ReLU(),
+                    nn.BatchNorm1d(512),
+                    nn.Dropout(0.3),
+                    nn.Linear(512, len(UNIFIED_CLASSES))
+                )
                 
                 state_dict = torch.load(densenet_path, map_location=self.device, weights_only=False)
                 

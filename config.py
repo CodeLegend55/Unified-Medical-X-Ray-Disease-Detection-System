@@ -15,15 +15,16 @@ MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
 MODEL_PATH = "models"
 
 # Unified Model Classes (8 classes total)
+# IMPORTANT: This order MUST match the training notebook exactly!
 UNIFIED_CLASSES = [
     "COVID19",
-    "FRACTURED", 
-    "NON_FRACTURED",
-    "NORMAL_BONE",
+    "PNEUMONIA",
+    "TUBERCULOSIS",
     "NORMAL_CHEST",
     "OSTEOPOROSIS",
-    "PNEUMONIA",
-    "TUBERCULOSIS"
+    "NORMAL_BONE",
+    "FRACTURED",
+    "NON_FRACTURED"
 ]
 
 # Class groupings for different problem types
