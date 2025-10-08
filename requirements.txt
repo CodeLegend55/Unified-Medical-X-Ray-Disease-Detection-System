@@ -3,6 +3,20 @@ torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0
 
+# Intel GPU Support (Intel Iris Xe Graphics)
+# Uncomment ONE of the following options to enable Intel GPU acceleration:
+# 
+# Option 1: DirectML (Recommended for Windows with Intel/AMD integrated GPUs)
+torch-directml>=0.2.5.dev240914
+# 
+# Option 2: Intel Extension for PyTorch (For Linux or specific Intel Arc GPUs)
+# Note: Not available via pip on Windows. Install from:
+# https://intel.github.io/intel-extension-for-pytorch/index.html#installation
+# intel-extension-for-pytorch
+#
+# Note: The notebook will work on CPU if no GPU acceleration is installed.
+# GPU acceleration is optional but recommended for faster training.
+
 # Data Processing
 numpy>=1.24.0
 pandas>=2.0.0
