@@ -10,3 +10,6 @@ uploads/
 
 #cache files
 __pycache__/
+
+#this file
+.gitignore
