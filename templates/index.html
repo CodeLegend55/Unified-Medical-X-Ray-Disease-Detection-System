@@ -296,12 +296,12 @@
     <div class="container">
         <div class="header">
             <h1>🏥 Unified Medical X-Ray Analysis System</h1>
-            <p>Ensemble AI analyzing 8 medical conditions with dual deep learning models</p>
+            <p>Ensemble AI analyzing 8 medical conditions with THREE powerful deep learning models</p>
         </div>
 
         <div class="main-content">
             <div class="info-banner">
-                ✨ <strong>Ensemble Models:</strong> ResNet50 + DenseNet121 trained on 39,818+ images across chest conditions, fractures, and bone diseases
+                ✨ <strong>3-Model Ensemble:</strong> ResNet50 + DenseNet121 + EfficientNetB0 trained on 39,818+ images across chest conditions, fractures, and bone diseases
             </div>
 
             <div class="upload-section">
@@ -322,8 +322,8 @@
 
             <div class="loading" id="loading">
                 <div class="loading-spinner"></div>
-                <p>Analyzing image with ensemble AI models...</p>
-                <p><small>Processing with ResNet50 and DenseNet121 for enhanced accuracy</small></p>
+                <p>Analyzing image with 3-model ensemble AI...</p>
+                <p><small>Processing with ResNet50, DenseNet121, and EfficientNetB0 for maximum accuracy</small></p>
             </div>
 
             <div class="results" id="results">
@@ -498,7 +498,20 @@
             
             // Show model agreement
             const modelAgreement = document.getElementById('modelAgreement');
-            if (predictions.resnet50 && predictions.densenet121) {
+            if (predictions.resnet50 && predictions.densenet121 && predictions.efficientnetb0) {
+                const classes = [predictions.resnet50.class, predictions.densenet121.class, predictions.efficientnetb0.class];
+                const uniqueClasses = [...new Set(classes)];
+                
+                if (uniqueClasses.length === 1) {
+                    modelAgreement.innerHTML = '✓ All 3 models agree on diagnosis (100% consensus)';
+                } else if (uniqueClasses.length === 2) {
+                    // Check which models agree
+                    const agreementCount = classes.filter(c => c === ensemble.class).length;
+                    modelAgreement.innerHTML = `⚠ ${agreementCount}/3 models agree on diagnosis`;
+                } else {
+                    modelAgreement.innerHTML = '⚠ Models disagree - Showing ensemble average prediction';
+                }
+            } else if (predictions.resnet50 && predictions.densenet121) {
                 if (predictions.resnet50.class === predictions.densenet121.class) {
                     modelAgreement.innerHTML = '✓ Both models agree on diagnosis';
                 } else {
@@ -525,7 +538,7 @@
             const modelPredictions = document.getElementById('modelPredictions');
             modelPredictions.innerHTML = '';
             
-            const modelNames = ['resnet50', 'densenet121'];
+            const modelNames = ['resnet50', 'densenet121', 'efficientnetb0'];
             modelNames.forEach(modelName => {
                 if (predictions[modelName]) {
                     const pred = predictions[modelName];
@@ -621,14 +634,18 @@
             .then(data => {
                 console.log('Server status:', data);
                 const modelsLoaded = data.models_loaded;
-                if (!modelsLoaded.resnet50 && !modelsLoaded.densenet121) {
+                const modelCount = Object.values(modelsLoaded).filter(v => v).length;
+                
+                if (modelCount === 0) {
                     showError('Warning: No models are loaded. Please check the server configuration.');
-                } else if (!modelsLoaded.resnet50) {
-                    console.warn('ResNet50 model not loaded. Using DenseNet121 only.');
-                } else if (!modelsLoaded.densenet121) {
-                    console.warn('DenseNet121 model not loaded. Using ResNet50 only.');
+                } else if (modelCount === 3) {
+                    console.log('✓ All 3 models loaded successfully (ResNet50, DenseNet121, EfficientNetB0)');
                 } else {
-                    console.log('✓ Both models loaded successfully');
+                    const loadedModels = Object.entries(modelsLoaded)
+                        .filter(([k, v]) => v)
+                        .map(([k, v]) => k)
+                        .join(', ');
+                    console.warn(`Warning: Only ${modelCount}/3 models loaded: ${loadedModels}`);
                 }
             })
             .catch(error => {

@@ -49,10 +49,11 @@ class UnifiedMedicalModel:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.resnet_model = None
         self.densenet_model = None
+        self.efficientnet_model = None
         self.load_models()
     
     def load_models(self):
-        """Load both ResNet50 and DenseNet121 models"""
+        """Load ResNet50, DenseNet121, and EfficientNetB0 models"""
         # Load ResNet50
         resnet_path = 'models/unified_ResNet50.pth'
         if os.path.exists(resnet_path):
@@ -139,6 +140,49 @@ class UnifiedMedicalModel:
         else:
             print(f"✗ DenseNet121 model file not found: {densenet_path}")
         
+        # Load EfficientNetB0
+        efficientnet_path = 'models/unified_EfficientNetB0.pth'
+        if os.path.exists(efficientnet_path):
+            try:
+                self.efficientnet_model = models.efficientnet_b0(weights=None)
+                num_features = self.efficientnet_model.classifier[1].in_features
+                
+                # IMPORTANT: Match the exact architecture from training
+                self.efficientnet_model.classifier[1] = nn.Sequential(
+                    nn.Dropout(0.5),
+                    nn.Linear(num_features, 512),
+                    nn.ReLU(),
+                    nn.BatchNorm1d(512),
+                    nn.Dropout(0.3),
+                    nn.Linear(512, len(UNIFIED_CLASSES))
+                )
+                
+                state_dict = torch.load(efficientnet_path, map_location=self.device, weights_only=False)
+                
+                # Handle state_dict with 'backbone.' prefix
+                if any(key.startswith('backbone.') for key in state_dict.keys()):
+                    new_state_dict = {}
+                    for key, value in state_dict.items():
+                        if key.startswith('backbone.'):
+                            new_key = key.replace('backbone.', '', 1)
+                            new_state_dict[new_key] = value
+                        else:
+                            new_state_dict[key] = value
+                    state_dict = new_state_dict
+                
+                self.efficientnet_model.load_state_dict(state_dict, strict=False)
+                self.efficientnet_model.to(self.device)
+                self.efficientnet_model.eval()
+                
+                print(f"✓ Loaded EfficientNetB0 model with {len(UNIFIED_CLASSES)} classes")
+            except Exception as e:
+                print(f"✗ Error loading EfficientNetB0 model: {e}")
+                import traceback
+                traceback.print_exc()
+                self.efficientnet_model = None
+        else:
+            print(f"✗ EfficientNetB0 model file not found: {efficientnet_path}")
+        
         print(f"✓ Device: {self.device}")
     
     def predict_single_model(self, image_tensor, model, model_name):
@@ -167,8 +211,8 @@ class UnifiedMedicalModel:
             return None
     
     def predict(self, image_path):
-        """Make prediction using both models and provide ensemble result"""
-        if self.resnet_model is None and self.densenet_model is None:
+        """Make prediction using all three models and provide ensemble result"""
+        if self.resnet_model is None and self.densenet_model is None and self.efficientnet_model is None:
             return None, "No models loaded"
         
         try:
@@ -190,6 +234,12 @@ class UnifiedMedicalModel:
                 if densenet_result:
                     results['densenet121'] = densenet_result
             
+            # Get predictions from EfficientNetB0
+            if self.efficientnet_model is not None:
+                efficientnet_result = self.predict_single_model(input_tensor, self.efficientnet_model, 'EfficientNetB0')
+                if efficientnet_result:
+                    results['efficientnetb0'] = efficientnet_result
+            
             # Create ensemble prediction (average probabilities)
             if len(results) > 0:
                 ensemble_probs = {}
@@ -199,6 +249,8 @@ class UnifiedMedicalModel:
                         probs.append(results['resnet50']['all_probabilities'][cls])
                     if 'densenet121' in results:
                         probs.append(results['densenet121']['all_probabilities'][cls])
+                    if 'efficientnetb0' in results:
+                        probs.append(results['efficientnetb0']['all_probabilities'][cls])
                     ensemble_probs[cls] = round(sum(probs) / len(probs), 2)
                 
                 ensemble_class = max(ensemble_probs.keys(), key=lambda x: ensemble_probs[x])
@@ -288,7 +340,7 @@ def generate_openai_report(predictions):
 def generate_fallback_report(predictions):
     """Generate a comprehensive report when OpenAI API is not available"""
     # Use ensemble prediction for the main diagnosis
-    ensemble = predictions.get('ensemble', predictions.get('resnet50', predictions.get('densenet121')))
+    ensemble = predictions.get('ensemble', predictions.get('resnet50', predictions.get('densenet121', predictions.get('efficientnetb0'))))
     diagnosis = ensemble['class']
     confidence = ensemble['confidence']
     
@@ -307,8 +359,11 @@ Models Used: """
         report += "\n• ResNet50"
     if 'densenet121' in predictions:
         report += "\n• DenseNet121"
+    if 'efficientnetb0' in predictions:
+        report += "\n• EfficientNetB0"
     if 'ensemble' in predictions:
-        report += "\n• Ensemble (Average of both models)"
+        num_models = sum(1 for k in ['resnet50', 'densenet121', 'efficientnetb0'] if k in predictions)
+        report += f"\n• Ensemble (Average of {num_models} models)"
     
     report += f"\nTotal Classes: {len(UNIFIED_CLASSES)}"
     
@@ -333,6 +388,12 @@ INDIVIDUAL MODEL PREDICTIONS:"""
         report += f"\n  Prediction: {densenet['class']}"
         report += f"\n  Confidence: {densenet['confidence']:.1f}%"
     
+    if 'efficientnetb0' in predictions:
+        efficientnet = predictions['efficientnetb0']
+        report += f"\n\n{efficientnet['model']}:"
+        report += f"\n  Prediction: {efficientnet['class']}"
+        report += f"\n  Confidence: {efficientnet['confidence']:.1f}%"
+    
     # Show ensemble probabilities
     report += "\n\nENSEMBLE PROBABILITY DISTRIBUTION:"
     report += "\nAll Classes (Sorted by Confidence):"
@@ -343,13 +404,23 @@ INDIVIDUAL MODEL PREDICTIONS:"""
     
     # Model agreement analysis
     report += "\n\nMODEL CONSENSUS ANALYSIS:"
-    if 'resnet50' in predictions and 'densenet121' in predictions:
-        if predictions['resnet50']['class'] == predictions['densenet121']['class']:
-            report += "\n✓ High Confidence: Both models agree on the diagnosis"
+    model_predictions = []
+    if 'resnet50' in predictions:
+        model_predictions.append(('ResNet50', predictions['resnet50']['class'], predictions['resnet50']['confidence']))
+    if 'densenet121' in predictions:
+        model_predictions.append(('DenseNet121', predictions['densenet121']['class'], predictions['densenet121']['confidence']))
+    if 'efficientnetb0' in predictions:
+        model_predictions.append(('EfficientNetB0', predictions['efficientnetb0']['class'], predictions['efficientnetb0']['confidence']))
+    
+    if len(model_predictions) >= 2:
+        # Check if all models agree
+        all_agree = all(pred[1] == model_predictions[0][1] for pred in model_predictions)
+        if all_agree:
+            report += f"\n✓ High Confidence: All {len(model_predictions)} models agree on the diagnosis"
         else:
             report += f"\n⚠ Models Disagree:"
-            report += f"\n  • ResNet50: {predictions['resnet50']['class']} ({predictions['resnet50']['confidence']:.1f}%)"
-            report += f"\n  • DenseNet121: {predictions['densenet121']['class']} ({predictions['densenet121']['confidence']:.1f}%)"
+            for name, pred_class, conf in model_predictions:
+                report += f"\n  • {name}: {pred_class} ({conf:.1f}%)"
             report += f"\n  • Ensemble Decision: {diagnosis} ({confidence:.1f}%)"
     
     # Add specific recommendations based on diagnosis
@@ -475,12 +546,14 @@ def upload_file():
 def health_check():
     resnet_loaded = unified_model.resnet_model is not None
     densenet_loaded = unified_model.densenet_model is not None
+    efficientnet_loaded = unified_model.efficientnet_model is not None
     
     return jsonify({
-        'status': 'healthy' if (resnet_loaded or densenet_loaded) else 'unhealthy',
+        'status': 'healthy' if (resnet_loaded or densenet_loaded or efficientnet_loaded) else 'unhealthy',
         'models_loaded': {
             'resnet50': resnet_loaded,
-            'densenet121': densenet_loaded
+            'densenet121': densenet_loaded,
+            'efficientnetb0': efficientnet_loaded
         },
         'num_classes': len(UNIFIED_CLASSES),
         'classes': UNIFIED_CLASSES
@@ -492,6 +565,7 @@ if __name__ == '__main__':
     print(f"🤖 Models:")
     print(f"   • ResNet50: {'✓ Loaded' if unified_model.resnet_model else '✗ Not loaded'}")
     print(f"   • DenseNet121: {'✓ Loaded' if unified_model.densenet_model else '✗ Not loaded'}")
+    print(f"   • EfficientNetB0: {'✓ Loaded' if unified_model.efficientnet_model else '✗ Not loaded'}")
     print(f"🏥 Classes: {len(UNIFIED_CLASSES)} ({', '.join(UNIFIED_CLASSES)})")
     print(f"🔗 OpenAI API: {'Available' if OPENAI_AVAILABLE else 'Not available (using fallback reports)'}")
     print("🌐 Access the application at: http://localhost:5000")
