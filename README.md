@@ -13,9 +13,6 @@
 ---
 
 ## 📞 Support
-
----
-
 ## 👥 Team Members
 
 - **Neeraj Tirumalasetty** - [https://github.com/neerajtirumalasetty](https://github.com/neerajtirumalasetty)
@@ -24,11 +21,6 @@
 
 ---
 
-## 📞 Support.org/)
-
-Train a single deep learning model to detect **8 different diseases** from X-ray images automatically.
-
----
 
 ## 🎯 Overview
 
