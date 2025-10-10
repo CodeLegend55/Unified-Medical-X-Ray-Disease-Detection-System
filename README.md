@@ -67,16 +67,23 @@ cd "Unified Training"
 # 2. Install dependencies
 pip install -r requirements.txt
 
-# 3. Prepare dataset (organize your datasets first)
+# 3. (Optional) Configure Hugging Face API for AI reports
+# Get free API key from https://huggingface.co/settings/tokens
+# Edit config.py and add your key
+
+# 4. Verify setup (optional)
+python verify_hf_setup.py
+
+# 5. Prepare dataset (organize your datasets first)
 python prepare_unified_dataset.py
 
-# 4. Train models (optional - pre-trained models available)
+# 6. Train models (optional - pre-trained models available)
 jupyter notebook unified_model_training.ipynb
 
-# 5. Run the Flask web application
+# 7. Run the Flask web application
 python app.py
 
-# 6. Open browser to http://localhost:5000
+# 8. Open browser to http://localhost:5000
 ```
 
 **Prerequisites:** 
@@ -84,6 +91,7 @@ python app.py
 - 16GB RAM minimum (32GB recommended)
 - GPU recommended for training (CUDA-enabled)
 - ~20GB disk space for datasets
+- (Optional) Hugging Face account for AI-powered reports
 
 ---
 
@@ -165,9 +173,36 @@ Then open your browser to: **http://localhost:5000**
 - 📊 **Individual model predictions** with confidence scores for each model
 - 🎯 **Model consensus analysis** - visual indicator when models agree/disagree
 - 📈 **Real-time probability distribution** averaged across all 3 models
-- 📋 **Automated medical report** with comprehensive analysis and recommendations
+- 📋 **AI-powered medical reports** using Hugging Face language models (free!)
 - ⚡ **Fast inference** (~100-150ms per image on CPU, ~30-50ms on GPU)
 - 📱 **Responsive design** works on mobile, tablet, and desktop
+
+### 🤖 AI-Powered Medical Report Generation
+
+The system now uses **Hugging Face's free API** to generate comprehensive medical reports with advanced language models:
+
+**Quick Setup (30 seconds):**
+1. Get free API key: [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
+2. Update `config.py`:
+   ```python
+   HUGGINGFACE_API_KEY = "hf_your_api_key_here"
+   ```
+3. Run the app: `python app.py`
+
+**Default Model:** Mistral-7B-Instruct (excellent for medical text)
+
+**Alternative Models:**
+- `microsoft/BioGPT-Large` - Specialized medical model
+- `meta-llama/Llama-2-7b-chat-hf` - General purpose chat
+- `google/flan-t5-large` - Fast and lightweight
+
+**Benefits:**
+- ✅ **Free tier**: 1000 requests/day (vs paid OpenAI)
+- ✅ **Open source models**: No vendor lock-in
+- ✅ **Privacy option**: Can run models locally
+- ✅ **Automatic fallback**: Works without API key configured
+
+See **[HUGGINGFACE_SETUP.md](HUGGINGFACE_SETUP.md)** for detailed setup instructions.
 
 **What You'll See:**
 1. **Ensemble Diagnosis** - Combined prediction from all 3 models (highest accuracy)

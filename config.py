@@ -1,10 +1,18 @@
 # Configuration file for the Unified Medical X-Ray Analysis Web Application
 
-# OpenAI API Configuration (Optional)
-# Get your API key from: https://platform.openai.com/api-keys
-OPENAI_API_KEY = "your-openai-api-key-here"
+# Hugging Face API Configuration (Optional)
+# Get your API key from: https://huggingface.co/settings/tokens
+HUGGINGFACE_API_KEY = "API_KEY_HERE"
 
-# If you don't have an OpenAI API key, leave it as is
+# Hugging Face Model Configuration
+# You can use different medical/general language models:
+# - "mistralai/Mistral-7B-Instruct-v0.2" (general purpose, good for medical text) ⭐ RECOMMENDED
+# - "microsoft/BioGPT-Large" (biomedical text generation)
+# - "meta-llama/Llama-2-7b-chat-hf" (general purpose chat model)
+# - "google/flan-t5-large" (instruction-tuned model)
+HUGGINGFACE_MODEL = "mistralai/Mistral-7B-Instruct-v0.2"
+
+# If you don't have a Hugging Face API key, leave it as is
 # The app will use a fallback report generation system
 
 # Flask Configuration

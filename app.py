@@ -9,16 +9,24 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import json
 import config
+import requests
 
-# Try to import OpenAI (optional)
+# Try to import Hugging Face InferenceClient (optional)
 try:
-    from openai import OpenAI
-    client = OpenAI(api_key=config.OPENAI_API_KEY) if config.OPENAI_API_KEY != "your-openai-api-key-here" else None
-    OPENAI_AVAILABLE = bool(client)
+    from huggingface_hub import InferenceClient
+    hf_client = InferenceClient(
+        model=config.HUGGINGFACE_MODEL,
+        token=config.HUGGINGFACE_API_KEY
+    ) if config.HUGGINGFACE_API_KEY != "your-huggingface-api-key-here" else None
+    HUGGINGFACE_AVAILABLE = bool(hf_client)
 except ImportError:
-    OPENAI_AVAILABLE = False
-    client = None
-    print("⚠️ OpenAI package not available. Using fallback report generation.")
+    HUGGINGFACE_AVAILABLE = False
+    hf_client = None
+    print("⚠️ Hugging Face Hub package not available. Using fallback report generation.")
+except Exception as e:
+    HUGGINGFACE_AVAILABLE = False
+    hf_client = None
+    print(f"⚠️ Hugging Face client initialization failed: {e}. Using fallback report generation.")
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
@@ -269,73 +277,83 @@ class UnifiedMedicalModel:
             return None, f"Error during prediction: {str(e)}"
 
 def generate_medical_report(predictions):
-    """Generate medical report using OpenAI API or fallback"""
+    """Generate medical report using Hugging Face API or fallback"""
     
-    # Try OpenAI first if available
-    if OPENAI_AVAILABLE:
+    # Try Hugging Face first if available
+    if HUGGINGFACE_AVAILABLE:
         try:
-            return generate_openai_report(predictions)
+            return generate_huggingface_report(predictions)
         except Exception as e:
-            print(f"OpenAI API failed: {e}. Using fallback report.")
+            print(f"Hugging Face API failed: {e}. Using fallback report.")
+            import traceback
+            traceback.print_exc()
     
     # Use fallback report generation
     return generate_fallback_report(predictions)
 
-def generate_openai_report(predictions):
-    """Generate medical report using OpenAI API"""
+def generate_huggingface_report(predictions):
+    """Generate medical report using Hugging Face Inference API"""
     # Use ensemble prediction for the main diagnosis
     ensemble = predictions.get('ensemble', predictions.get('resnet50', predictions.get('densenet121')))
     diagnosis = ensemble['class']
     confidence = ensemble['confidence']
     
-    prompt = f"""
-    As a medical AI assistant, generate a structured medical report based on X-ray analysis results from multiple AI models.
-    
-    Analysis Type: Unified Multi-Disease Detection (Ensemble Model)
-    
-    Primary Diagnosis (Ensemble): {diagnosis}
-    Confidence Level: {confidence:.1f}%
-    
-    Model Predictions:"""
+    # Build the analysis summary
+    analysis_summary = f"""Analysis Type: Unified Multi-Disease Detection (Ensemble Model)
+
+Primary Diagnosis (Ensemble): {diagnosis}
+Confidence Level: {confidence:.1f}%
+
+Model Predictions:"""
     
     # Add individual model predictions
     for model_name, result in predictions.items():
         if model_name != 'ensemble':
-            prompt += f"\n- {result['model']}: {result['class']} ({result['confidence']:.1f}%)"
+            analysis_summary += f"\n- {result['model']}: {result['class']} ({result['confidence']:.1f}%)"
     
-    prompt += f"""
-    
-    Top Ensemble Probabilities:
-    """
+    analysis_summary += f"""
+
+Top Ensemble Probabilities:
+"""
     
     # Add top 3 probabilities from ensemble
     sorted_probs = sorted(ensemble['all_probabilities'].items(), key=lambda x: x[1], reverse=True)[:3]
     for cls, prob in sorted_probs:
-        prompt += f"- {cls}: {prob:.1f}%\n"
+        analysis_summary += f"- {cls}: {prob:.1f}%\n"
     
-    prompt += """
+    # Use chat completion format for conversational models
+    messages = [
+        {
+            "role": "user",
+            "content": f"""You are a medical AI assistant. Generate a structured medical report based on X-ray analysis results.
+
+{analysis_summary}
+
+Please provide a professional medical report with the following sections:
+1. CLINICAL FINDINGS
+2. MODEL CONSENSUS ANALYSIS
+3. DIAGNOSTIC IMPRESSION  
+4. RECOMMENDATIONS
+5. IMPORTANT NOTES
+
+Keep the language clear and professional. Include appropriate medical disclaimers."""
+        }
+    ]
     
-    Please provide a professional medical report with the following sections:
-    1. CLINICAL FINDINGS
-    2. MODEL CONSENSUS ANALYSIS
-    3. DIAGNOSTIC IMPRESSION  
-    4. RECOMMENDATIONS
-    5. IMPORTANT NOTES
-    
-    Keep the language clear and professional. Include appropriate medical disclaimers.
-    """
-    
-    response = client.chat.completions.create(
-        model="gpt-3.5-turbo",
-        messages=[
-            {"role": "system", "content": "You are a medical AI assistant helping to interpret unified multi-disease X-ray analysis results from ensemble models. Provide professional, accurate, and helpful medical reports while emphasizing the need for professional medical consultation."},
-            {"role": "user", "content": prompt}
-        ],
-        max_tokens=1000,
-        temperature=0.3
+    # Call Hugging Face Inference API using chat completion
+    response = hf_client.chat_completion(
+        messages=messages,
+        max_tokens=800,
+        temperature=0.3,
+        top_p=0.9
     )
     
-    return response.choices[0].message.content.strip()
+    # Extract the response text
+    if hasattr(response, 'choices') and len(response.choices) > 0:
+        return response.choices[0].message.content.strip()
+    else:
+        # Fallback if response format is different
+        return str(response).strip()
 
 def generate_fallback_report(predictions):
     """Generate a comprehensive report when OpenAI API is not available"""
@@ -567,6 +585,8 @@ if __name__ == '__main__':
     print(f"   • DenseNet121: {'✓ Loaded' if unified_model.densenet_model else '✗ Not loaded'}")
     print(f"   • EfficientNetB0: {'✓ Loaded' if unified_model.efficientnet_model else '✗ Not loaded'}")
     print(f"🏥 Classes: {len(UNIFIED_CLASSES)} ({', '.join(UNIFIED_CLASSES)})")
-    print(f"🔗 OpenAI API: {'Available' if OPENAI_AVAILABLE else 'Not available (using fallback reports)'}")
+    print(f"🔗 Hugging Face API: {'Available' if HUGGINGFACE_AVAILABLE else 'Not available (using fallback reports)'}")
+    if HUGGINGFACE_AVAILABLE:
+        print(f"   Model: {config.HUGGINGFACE_MODEL}")
     print("🌐 Access the application at: http://localhost:5000")
     app.run(debug=config.DEBUG, host=config.HOST, port=config.PORT)
