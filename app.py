@@ -12,21 +12,67 @@ import config
 import requests
 
 # Try to import Hugging Face InferenceClient (optional)
-try:
-    from huggingface_hub import InferenceClient
-    hf_client = InferenceClient(
-        model=config.HUGGINGFACE_MODEL,
-        token=config.HUGGINGFACE_API_KEY
-    ) if config.HUGGINGFACE_API_KEY != "your-huggingface-api-key-here" else None
-    HUGGINGFACE_AVAILABLE = bool(hf_client)
-except ImportError:
-    HUGGINGFACE_AVAILABLE = False
+def validate_huggingface_api():
+    """Validate Hugging Face API token and check if API is accessible"""
+    if not config.HUGGINGFACE_API_KEY or config.HUGGINGFACE_API_KEY in ["your-huggingface-api-key-here", "API_KEY_HERE", ""]:
+        return False, "No API key configured", None
+    
+    try:
+        from huggingface_hub import InferenceClient
+        
+        # Initialize client
+        client = InferenceClient(
+            model=config.HUGGINGFACE_MODEL,
+            token=config.HUGGINGFACE_API_KEY
+        )
+        
+        # Test the API with a simple chat request (works for both chat and text-generation models)
+        try:
+            # Try chat completion first (for instruction-tuned models like Mistral)
+            test_response = client.chat_completion(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5
+            )
+            return True, "API key is valid and model is accessible (chat mode)", client
+        except Exception as chat_error:
+            # If chat fails, try text generation
+            try:
+                test_response = client.text_generation(
+                    prompt="Test",
+                    max_new_tokens=5,
+                    temperature=0.5
+                )
+                return True, "API key is valid and model is accessible (text-generation mode)", client
+            except Exception as text_error:
+                # If both fail, raise the more informative error
+                raise chat_error
+        
+    except ImportError:
+        return False, "huggingface_hub package not installed", None
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "authorization" in error_msg.lower():
+            return False, "Invalid API key - Authorization failed", None
+        elif "404" in error_msg or "does not exist" in error_msg.lower():
+            return False, f"Model '{config.HUGGINGFACE_MODEL}' not found or not accessible", None
+        elif "rate limit" in error_msg.lower():
+            return False, "API rate limit exceeded", None
+        elif "not supported" in error_msg.lower():
+            # Model exists but might need different API method - this is still OK
+            return True, f"API key is valid (Note: {error_msg})", client
+        else:
+            return False, f"API validation failed: {error_msg}", None
+
+# Validate Hugging Face API on startup
+HUGGINGFACE_AVAILABLE, HF_STATUS_MESSAGE, hf_client = validate_huggingface_api()
+
+if HUGGINGFACE_AVAILABLE:
+    print(f"✓ Hugging Face API is valid and accessible")
+    print(f"  Model: {config.HUGGINGFACE_MODEL}")
+else:
     hf_client = None
-    print("⚠️ Hugging Face Hub package not available. Using fallback report generation.")
-except Exception as e:
-    HUGGINGFACE_AVAILABLE = False
-    hf_client = None
-    print(f"⚠️ Hugging Face client initialization failed: {e}. Using fallback report generation.")
+    print(f"⚠️ Hugging Face API not available: {HF_STATUS_MESSAGE}")
+    print(f"  Using fallback report generation.")
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
@@ -798,9 +844,118 @@ def health_check():
             'densenet121': densenet_loaded,
             'efficientnetb0': efficientnet_loaded
         },
+        'huggingface_api': {
+            'available': HUGGINGFACE_AVAILABLE,
+            'status': HF_STATUS_MESSAGE,
+            'model': config.HUGGINGFACE_MODEL if HUGGINGFACE_AVAILABLE else None
+        },
         'num_classes': len(UNIFIED_CLASSES),
         'classes': UNIFIED_CLASSES
     })
+
+@app.route('/api/huggingface/status')
+def huggingface_api_status():
+    """Dedicated endpoint to check Hugging Face API status"""
+    # Re-validate in case status has changed
+    is_valid, status_msg, _ = validate_huggingface_api()
+    
+    return jsonify({
+        'api_configured': config.HUGGINGFACE_API_KEY not in ["your-huggingface-api-key-here", "API_KEY_HERE", "", None],
+        'api_valid': is_valid,
+        'status_message': status_msg,
+        'model_name': config.HUGGINGFACE_MODEL,
+        'report_mode': 'AI-Generated (Hugging Face)' if is_valid else 'Template-Based (Fallback)'
+    })
+
+@app.route('/api/huggingface/validate', methods=['POST'])
+def validate_api_key():
+    """Validate a Hugging Face API key without saving it"""
+    data = request.get_json()
+    
+    if not data or 'api_key' not in data:
+        return jsonify({'error': 'API key is required'}), 400
+    
+    api_key = data['api_key']
+    model_name = data.get('model', config.HUGGINGFACE_MODEL)
+    
+    if not api_key or api_key.strip() == "":
+        return jsonify({
+            'valid': False,
+            'message': 'API key cannot be empty'
+        }), 400
+    
+    try:
+        from huggingface_hub import InferenceClient
+        
+        # Test the API key
+        test_client = InferenceClient(
+            model=model_name,
+            token=api_key
+        )
+        
+        # Make a small test request - try chat completion first, then text generation
+        try:
+            # Try chat completion (for instruction-tuned models)
+            test_response = test_client.chat_completion(
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=5
+            )
+            return jsonify({
+                'valid': True,
+                'message': 'API key is valid and model is accessible (chat mode)',
+                'model': model_name
+            })
+        except Exception as chat_error:
+            # If chat fails, try text generation
+            try:
+                test_response = test_client.text_generation(
+                    prompt="Test",
+                    max_new_tokens=5,
+                    temperature=0.5
+                )
+                return jsonify({
+                    'valid': True,
+                    'message': 'API key is valid and model is accessible (text-generation mode)',
+                    'model': model_name
+                })
+            except Exception as text_error:
+                # If both methods fail, check if it's because model exists but needs different method
+                if "not supported" in str(chat_error).lower():
+                    return jsonify({
+                        'valid': True,
+                        'message': f'API key is valid (Note: {str(chat_error)})',
+                        'model': model_name
+                    })
+                # Otherwise raise the original error
+                raise chat_error
+        
+    except ImportError:
+        return jsonify({
+            'valid': False,
+            'message': 'huggingface_hub package not installed. Install with: pip install huggingface_hub'
+        }), 500
+    except Exception as e:
+        error_msg = str(e)
+        if "401" in error_msg or "authorization" in error_msg.lower():
+            return jsonify({
+                'valid': False,
+                'message': 'Invalid API key - Authorization failed'
+            }), 401
+        elif "404" in error_msg or "does not exist" in error_msg.lower():
+            return jsonify({
+                'valid': False,
+                'message': f"Model '{model_name}' not found or not accessible"
+            }), 404
+        elif "rate limit" in error_msg.lower():
+            return jsonify({
+                'valid': False,
+                'message': 'API rate limit exceeded. Please try again later.'
+            }), 429
+        else:
+            return jsonify({
+                'valid': False,
+                'message': f'Validation failed: {error_msg}'
+            }), 500
 
 if __name__ == '__main__':
     print("🚀 Starting Unified Medical Imaging Analysis Web Application...")
@@ -810,8 +965,17 @@ if __name__ == '__main__':
     print(f"   • DenseNet121: {'✓ Loaded' if unified_model.densenet_model else '✗ Not loaded'}")
     print(f"   • EfficientNetB0: {'✓ Loaded' if unified_model.efficientnet_model else '✗ Not loaded'}")
     print(f"🏥 Classes: {len(UNIFIED_CLASSES)} ({', '.join(UNIFIED_CLASSES)})")
-    print(f"🔗 Hugging Face API: {'Available' if HUGGINGFACE_AVAILABLE else 'Not available (using fallback reports)'}")
+    print(f"\n🔗 Hugging Face API Status:")
+    print(f"   • Status: {'✓ VALID' if HUGGINGFACE_AVAILABLE else '✗ NOT AVAILABLE'}")
+    print(f"   • Message: {HF_STATUS_MESSAGE}")
     if HUGGINGFACE_AVAILABLE:
-        print(f"   Model: {config.HUGGINGFACE_MODEL}")
+        print(f"   • Model: {config.HUGGINGFACE_MODEL}")
+        print(f"   • Report Mode: AI-Generated (Hugging Face)")
+    else:
+        print(f"   • Report Mode: Template-Based (Fallback)")
+    print(f"\n📡 API Endpoints:")
+    print(f"   • Health Check: http://localhost:5000/health")
+    print(f"   • HF API Status: http://localhost:5000/api/huggingface/status")
+    print(f"   • Validate API Key: http://localhost:5000/api/huggingface/validate (POST)")
     print("🌐 Access the application at: http://localhost:5000")
     app.run(debug=config.DEBUG, host=config.HOST, port=config.PORT)

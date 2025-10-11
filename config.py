@@ -2,7 +2,7 @@
 
 # Hugging Face API Configuration (Optional)
 # Get your API key from: https://huggingface.co/settings/tokens
-HUGGINGFACE_API_KEY = "API_KEY_HERE"
+HUGGINGFACE_API_KEY = "API_KEY_HERE"  # Replace with your actual API key or leave as is for no key
 
 # Hugging Face Model Configuration
 # You can use different medical/general language models:

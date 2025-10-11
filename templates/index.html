@@ -268,6 +268,32 @@
             text-align: center;
         }
 
+        .api-status-banner {
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: center;
+            border: 2px solid;
+        }
+
+        .api-status-banner.valid {
+            background: #d5f4e6;
+            color: #27ae60;
+            border-color: #27ae60;
+        }
+
+        .api-status-banner.invalid {
+            background: #fadbd8;
+            color: #e74c3c;
+            border-color: #e74c3c;
+        }
+
+        .api-status-banner.loading {
+            background: #fef5e7;
+            color: #f39c12;
+            border-color: #f39c12;
+        }
+
         .image-preview {
             max-width: 300px;
             max-height: 300px;
@@ -302,6 +328,11 @@
         <div class="main-content">
             <div class="info-banner">
                 ✨ <strong>3-Model Ensemble:</strong> ResNet50 + DenseNet121 + EfficientNetB0 trained on 39,818+ images across chest conditions, fractures, and bone diseases
+            </div>
+
+            <div class="api-status-banner loading" id="apiStatusBanner">
+                <span id="apiStatusIcon">⏳</span> <strong>Checking Hugging Face API status...</strong>
+                <div id="apiStatusText" style="margin-top: 5px; font-size: 0.9em;"></div>
             </div>
 
             <div class="upload-section">
@@ -647,10 +678,51 @@
                         .join(', ');
                     console.warn(`Warning: Only ${modelCount}/3 models loaded: ${loadedModels}`);
                 }
+
+                // Update Hugging Face API status
+                updateApiStatus(data.huggingface_api);
             })
             .catch(error => {
                 console.error('Could not check server health:', error);
+                updateApiStatus({available: false, status: 'Server connection failed'});
             });
+
+        function updateApiStatus(hfApiData) {
+            const banner = document.getElementById('apiStatusBanner');
+            const icon = document.getElementById('apiStatusIcon');
+            const text = document.getElementById('apiStatusText');
+
+            if (hfApiData.available) {
+                banner.className = 'api-status-banner valid';
+                icon.textContent = '✓';
+                text.innerHTML = `Hugging Face API is active. Using <strong>${hfApiData.model}</strong> for AI-generated medical reports.`;
+            } else {
+                banner.className = 'api-status-banner invalid';
+                icon.textContent = '⚠';
+                text.innerHTML = `Hugging Face API not available: ${hfApiData.status}<br>Using template-based medical reports instead.`;
+            }
+        }
+
+        // Function to refresh API status
+        function refreshApiStatus() {
+            const banner = document.getElementById('apiStatusBanner');
+            banner.className = 'api-status-banner loading';
+            document.getElementById('apiStatusIcon').textContent = '⏳';
+            document.getElementById('apiStatusText').textContent = 'Checking API status...';
+
+            fetch('/api/huggingface/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateApiStatus({
+                        available: data.api_valid,
+                        status: data.status_message,
+                        model: data.model_name
+                    });
+                })
+                .catch(error => {
+                    updateApiStatus({available: false, status: 'Connection error'});
+                });
+        }
     </script>
 </body>
 </html>
