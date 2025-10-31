@@ -72,12 +72,23 @@ python app.py
 - 🖼️ Drag-and-drop image upload
 - 🤖 3-Model ensemble prediction
 - 📊 Individual model confidence scores
--  AI-powered medical reports (optional Hugging Face API)
+- 📄 AI-powered medical reports (optional Gemini/Hugging Face API)
 - ⚡ Fast inference (~125ms GPU, ~210ms CPU)
 
 **AI Reports Setup (Optional):**
+
+**Option 1: Google Gemini (Recommended):**
+1. Get free API key: [https://makersuite.google.com/app/apikey](https://makersuite.google.com/app/apikey)
+2. Update `config.py`: 
+   - `REPORT_API = "gemini"`
+   - `GEMINI_API_KEY = "your_gemini_key"`
+3. See [GEMINI_SETUP.md](GEMINI_SETUP.md) for details
+
+**Option 2: Hugging Face:**
 1. Get free API key: [https://huggingface.co/settings/tokens](https://huggingface.co/settings/tokens)
-2. Update `config.py`: `HUGGINGFACE_API_KEY = "hf_your_key"`
+2. Update `config.py`: 
+   - `REPORT_API = "huggingface"`
+   - `HUGGINGFACE_API_KEY = "hf_your_key"`
 3. See [HUGGINGFACE_SETUP.md](HUGGINGFACE_SETUP.md) for details
 
 ---

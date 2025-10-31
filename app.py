@@ -11,7 +11,50 @@ import json
 import config
 import requests
 
-# Try to import Hugging Face InferenceClient (optional)
+# ═══════════════════════════════════════════════════════════════════════════════
+# AI API VALIDATION FUNCTIONS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def validate_gemini_api():
+    """Validate Google Gemini API token and check if API is accessible"""
+    if not config.GEMINI_API_KEY or config.GEMINI_API_KEY in ["API_KEY_HERE", ""]:
+        return False, "No API key configured", None
+    
+    try:
+        import google.generativeai as genai
+        
+        # Configure the API
+        genai.configure(api_key=config.GEMINI_API_KEY)
+        
+        # Initialize the model
+        model = genai.GenerativeModel(config.GEMINI_MODEL)
+        
+        # Test the API with a simple request
+        try:
+            test_response = model.generate_content(
+                "Hi",
+                generation_config=genai.types.GenerationConfig(
+                    max_output_tokens=5,
+                    temperature=0.5
+                )
+            )
+            return True, "API key is valid and model is accessible", model
+        except Exception as e:
+            raise e
+                
+    except ImportError:
+        return False, "google-generativeai package not installed. Install with: pip install google-generativeai", None
+    except Exception as e:
+        error_msg = str(e)
+        if "API_KEY_INVALID" in error_msg or "invalid api key" in error_msg.lower():
+            return False, "Invalid API key - Authorization failed", None
+        elif "quota" in error_msg.lower() or "rate limit" in error_msg.lower():
+            return False, "API quota exceeded or rate limit reached", None
+        elif "not found" in error_msg.lower() or "404" in error_msg:
+            return False, f"Model '{config.GEMINI_MODEL}' not found", None
+        else:
+            return False, f"API validation failed: {error_msg}", None
+
 def validate_huggingface_api():
     """Validate Hugging Face API token and check if API is accessible"""
     if not config.HUGGINGFACE_API_KEY or config.HUGGINGFACE_API_KEY in ["your-huggingface-api-key-here", "API_KEY_HERE", ""]:
@@ -63,16 +106,55 @@ def validate_huggingface_api():
         else:
             return False, f"API validation failed: {error_msg}", None
 
-# Validate Hugging Face API on startup
-HUGGINGFACE_AVAILABLE, HF_STATUS_MESSAGE, hf_client = validate_huggingface_api()
+# Validate APIs on startup based on configuration
+SELECTED_API = config.REPORT_API.lower()
+API_AVAILABLE = False
+API_STATUS_MESSAGE = ""
+api_client = None
 
-if HUGGINGFACE_AVAILABLE:
-    print(f"✓ Hugging Face API is valid and accessible")
-    print(f"  Model: {config.HUGGINGFACE_MODEL}")
+print(f"\n🔧 Report Generation API: {SELECTED_API.upper()}")
+print("─" * 70)
+
+if SELECTED_API == "gemini":
+    GEMINI_AVAILABLE, GEMINI_STATUS_MESSAGE, gemini_client = validate_gemini_api()
+    API_AVAILABLE = GEMINI_AVAILABLE
+    API_STATUS_MESSAGE = GEMINI_STATUS_MESSAGE
+    api_client = gemini_client
+    
+    if GEMINI_AVAILABLE:
+        print(f"✓ Google Gemini API is valid and accessible")
+        print(f"  Model: {config.GEMINI_MODEL}")
+    else:
+        print(f"✗ Google Gemini API not available: {GEMINI_STATUS_MESSAGE}")
+        print(f"  Falling back to template-based report generation")
+        
+elif SELECTED_API == "huggingface":
+    HUGGINGFACE_AVAILABLE, HF_STATUS_MESSAGE, hf_client = validate_huggingface_api()
+    API_AVAILABLE = HUGGINGFACE_AVAILABLE
+    API_STATUS_MESSAGE = HF_STATUS_MESSAGE
+    api_client = hf_client
+    
+    if HUGGINGFACE_AVAILABLE:
+        print(f"✓ Hugging Face API is valid and accessible")
+        print(f"  Model: {config.HUGGINGFACE_MODEL}")
+    else:
+        print(f"✗ Hugging Face API not available: {HF_STATUS_MESSAGE}")
+        print(f"  Falling back to template-based report generation")
+        
+elif SELECTED_API == "fallback":
+    API_AVAILABLE = False
+    API_STATUS_MESSAGE = "Using template-based report generation (no API)"
+    print(f"ℹ️  Template-based report generation selected")
+    print(f"  No external API will be used")
+    
 else:
-    hf_client = None
-    print(f"⚠️ Hugging Face API not available: {HF_STATUS_MESSAGE}")
-    print(f"  Using fallback report generation.")
+    API_AVAILABLE = False
+    API_STATUS_MESSAGE = f"Unknown API: {SELECTED_API}"
+    print(f"⚠️  Unknown API configuration: {SELECTED_API}")
+    print(f"  Valid options: 'gemini', 'huggingface', 'fallback'")
+    print(f"  Falling back to template-based report generation")
+
+print("─" * 70)
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = config.UPLOAD_FOLDER
@@ -323,19 +405,283 @@ class UnifiedMedicalModel:
             return None, f"Error during prediction: {str(e)}"
 
 def generate_medical_report(predictions):
-    """Generate medical report using Hugging Face API or fallback"""
+    """Generate medical report using selected AI API or fallback"""
     
-    # Try Hugging Face first if available
-    if HUGGINGFACE_AVAILABLE:
+    # Try selected API first if available
+    if API_AVAILABLE:
         try:
-            return generate_huggingface_report(predictions)
+            if SELECTED_API == "gemini":
+                return generate_gemini_report(predictions)
+            elif SELECTED_API == "huggingface":
+                return generate_huggingface_report(predictions)
         except Exception as e:
-            print(f"Hugging Face API failed: {e}. Using fallback report.")
+            print(f"⚠️  {SELECTED_API.upper()} API generation failed: {e}")
+            print(f"  Falling back to template-based report")
             import traceback
             traceback.print_exc()
     
     # Use fallback report generation
     return generate_fallback_report(predictions)
+
+def generate_gemini_report(predictions):
+    """Generate medical report using Google Gemini API - Doctor-like professional report"""
+    import google.generativeai as genai
+    
+    # Use ensemble prediction for the main diagnosis
+    ensemble = predictions.get('ensemble', predictions.get('resnet50', predictions.get('densenet121')))
+    diagnosis = ensemble['class']
+    confidence = ensemble['confidence']
+    
+    # Model consensus analysis
+    model_predictions = []
+    if 'resnet50' in predictions:
+        model_predictions.append(('ResNet50', predictions['resnet50']['class'], predictions['resnet50']['confidence']))
+    if 'densenet121' in predictions:
+        model_predictions.append(('DenseNet121', predictions['densenet121']['class'], predictions['densenet121']['confidence']))
+    if 'efficientnetb0' in predictions:
+        model_predictions.append(('EfficientNetB0', predictions['efficientnetb0']['class'], predictions['efficientnetb0']['confidence']))
+    
+    # Check model agreement
+    all_agree = all(pred[1] == model_predictions[0][1] for pred in model_predictions) if len(model_predictions) >= 2 else True
+    consensus_status = "High - All models agree" if all_agree else "Moderate - Models show variation"
+    
+    # Get top 5 probabilities from ensemble
+    sorted_probs = sorted(ensemble['all_probabilities'].items(), key=lambda x: x[1], reverse=True)[:5]
+    
+    # Determine imaging modality
+    imaging_type = "Chest X-Ray" if diagnosis in CHEST_CONDITIONS else "Bone/Skeletal X-Ray"
+    
+    # Build the analysis summary
+    analysis_summary = f"""IMAGING STUDY INFORMATION:
+Modality: {imaging_type}
+Study Date: {datetime.now().strftime('%B %d, %Y')}
+AI Analysis Type: 3-Model Ensemble Deep Learning System
+
+ENSEMBLE AI ANALYSIS RESULTS:
+Primary Diagnosis: {diagnosis}
+Diagnostic Confidence: {confidence:.1f}%
+Model Consensus Level: {consensus_status}
+
+Individual Model Predictions:"""
+    
+    # Add individual model predictions
+    for model_name, pred_class, conf in model_predictions:
+        agreement_marker = "✓ AGREES" if pred_class == diagnosis else "⚠ DIFFERS"
+        analysis_summary += f"\n  • {model_name}: {pred_class} ({conf:.1f}%) [{agreement_marker}]"
+    
+    analysis_summary += f"""
+
+Probability Distribution (Top 5):"""
+    
+    for i, (cls, prob) in enumerate(sorted_probs, 1):
+        analysis_summary += f"\n  {i}. {cls}: {prob:.1f}%"
+    
+    # Add clinical context
+    clinical_context = {
+        'COVID19': 'viral respiratory infection with typical chest radiograph findings including bilateral ground-glass opacities, consolidation, and peripheral distribution',
+        'PNEUMONIA': 'pulmonary infection with consolidation, infiltrates, and possible pleural involvement',
+        'TUBERCULOSIS': 'mycobacterial infection with upper lobe predominance, cavitation, and lymphadenopathy',
+        'NORMAL_CHEST': 'unremarkable chest radiograph with clear lung fields and normal cardiomediastinal contours',
+        'FRACTURED': 'osseous discontinuity with fracture line, possible displacement, and soft tissue swelling',
+        'NON_FRACTURED': 'intact bony architecture without evidence of acute fracture',
+        'OSTEOPOROSIS': 'generalized osteopenia with decreased bone density and trabecular thinning',
+        'NORMAL_BONE': 'age-appropriate bone density and normal trabecular architecture'
+    }
+    
+    context_info = clinical_context.get(diagnosis, 'pathological findings requiring clinical correlation')
+    
+    # Build comprehensive doctor-like prompt (same as Hugging Face)
+    prompt = f"""You are Dr. Sarah Mitchell, MD, FACR - a board-certified radiologist with 15 years of experience in diagnostic imaging. You are dictating a formal radiology report for a {imaging_type} study. Write as if you are personally interpreting this study and documenting your findings for the medical record.
+
+═══════════════════════════════════════════════════════════════════════
+STUDY INFORMATION TO INTERPRET:
+═══════════════════════════════════════════════════════════════════════
+{analysis_summary}
+
+EXPECTED RADIOLOGICAL FINDINGS:
+The AI analysis suggests {diagnosis}, which typically presents with: {context_info}
+
+═══════════════════════════════════════════════════════════════════════
+YOUR TASK - GENERATE A COMPLETE RADIOLOGY REPORT:
+═══════════════════════════════════════════════════════════════════════
+
+Write a detailed radiology report using the following professional structure. Use first person ("I") where appropriate, proper medical terminology, and maintain the authoritative yet accessible tone of an experienced radiologist.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1: CLINICAL INDICATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+State the clinical reason for the study. Example: "Evaluation for suspected [condition]. Clinical correlation with presenting symptoms requested."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2: TECHNIQUE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Describe the imaging performed. Example: "Digital {imaging_type} interpreted with AI-assisted analysis using ensemble deep learning models (ResNet50, DenseNet121, EfficientNetB0). Image quality is adequate for diagnostic interpretation."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3: COMPARISON
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Standard radiology practice. Example: "No prior imaging studies are available for comparison."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4: FINDINGS (MOST IMPORTANT - BE DETAILED)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Provide systematic, detailed observations using proper anatomical and radiological terminology:
+
+FOR CHEST STUDIES:
+• LUNGS: Describe aeration, opacities, infiltrates, nodules, masses, volume
+• PLEURA: Note effusions, thickening, pneumothorax
+• HEART: Comment on size, contour, cardiothoracic ratio
+• MEDIASTINUM: Describe width, contours, lymph nodes
+• BONES: Note any osseous abnormalities
+• AIRWAYS: Tracheal position, bronchial patterns
+• SPECIFIC PATHOLOGY: Detailed description of abnormalities
+
+FOR BONE STUDIES:
+• ALIGNMENT: Normal or abnormal positioning
+• BONE DENSITY: Appropriate for age or osteopenic/osteoporotic
+• CORTEX: Intact or disrupted, thickness
+• TRABECULAR PATTERN: Normal or abnormal architecture
+• FRACTURE DETAILS: Location, orientation, displacement, comminution if present
+• JOINTS: Space narrowing, effusion, alignment
+• SOFT TISSUES: Swelling, masses, calcifications
+
+Use specific radiological terms: "consolidation", "ground-glass opacity", "air bronchograms", "interstitial pattern", "lucency", "sclerosis", "periosteal reaction", etc.
+
+Be specific about locations: "right upper lobe", "left base", "distal radius", "medial malleolus"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 5: AI-ASSISTED ANALYSIS CORRELATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Discuss how your interpretation correlates with AI findings:
+• Note the ensemble confidence level ({confidence:.1f}%)
+• Mention model concordance: {consensus_status}
+• State agreement or variance with AI prediction
+• Explain clinical significance of confidence levels
+
+Example: "The AI ensemble analysis demonstrates {confidence:.1f}% confidence for {diagnosis}, with {'concordant predictions across all three neural networks' if all_agree else 'some variation among individual models'}, which {'supports' if confidence > 85 else 'suggests consideration of'} this diagnosis."
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 6: IMPRESSION (CRITICAL - CLEAR & ACTIONABLE)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Provide numbered, concise diagnostic conclusions:
+
+1. PRIMARY DIAGNOSIS:
+   Findings consistent with/suggestive of [diagnosis]
+   - Supporting evidence from imaging
+   - Certainty level based on confidence and findings
+
+2. DIFFERENTIAL DIAGNOSES: (if applicable)
+   Consider [alternative diagnoses] if clinical scenario suggests
+   - Brief rationale
+
+3. RECOMMENDATIONS:
+   a) Clinical correlation with [specific symptoms/tests]
+   b) [Specific consultation] recommended [urgency level]
+   c) [Additional imaging/tests] if clinically indicated
+   d) Follow-up imaging in [timeframe] to [purpose]
+
+Example format:
+"IMPRESSION:
+1. Findings consistent with {diagnosis} (AI-assisted confidence: {confidence:.1f}%)
+   - [Specific radiological evidence]
+   - Clinical correlation recommended
+   
+2. Differential considerations include:
+   - [Alternative diagnosis]: Consider if [clinical scenario]
+   
+3. RECOMMENDATIONS:
+   - [Specific test/consultation] recommended [urgency: STAT/urgent/routine]
+   - Clinical correlation with patient symptoms essential
+   - [Follow-up imaging] in [specific timeframe]"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 7: ELECTRONICALLY SIGNED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+End with: "This report has been reviewed and interpreted with AI-assisted decision support. Clinical correlation is essential for final diagnostic and therapeutic decisions."
+
+Signed: Dr. Sarah Mitchell, MD, FACR
+Board Certified in Diagnostic Radiology
+[Current timestamp]
+
+═══════════════════════════════════════════════════════════════════════
+
+CRITICAL WRITING GUIDELINES:
+✓ Write in professional medical language as a radiologist would dictate
+✓ Use "I observe", "In my assessment", "I recommend" where appropriate
+✓ Be systematically thorough in FINDINGS section
+✓ Use proper medical abbreviations (bilateral, AP/PA, etc.)
+✓ Be specific with anatomical locations
+✓ Use confidence qualifiers: "consistent with", "suggestive of", "suspicious for", "no evidence of"
+✓ Provide specific timeframes for recommendations
+✓ Include relevant differentials even for high-confidence cases
+✓ Maintain objective, professional tone throughout
+✓ Make recommendations actionable and specific
+
+Generate the complete, professional radiology report now."""
+    
+    try:
+        # Generate report using Gemini
+        generation_config = genai.types.GenerationConfig(
+            temperature=0.7,
+            top_p=0.95,
+            top_k=40,
+            max_output_tokens=2048,
+        )
+        
+        response = api_client.generate_content(
+            prompt,
+            generation_config=generation_config
+        )
+        
+        ai_report = response.text
+        
+    except Exception as e:
+        # If generation fails, raise the exception to trigger fallback
+        print(f"Gemini generation failed: {e}")
+        raise
+    
+    # Prepend professional header
+    full_report = f"""╔═══════════════════════════════════════════════════════════════════════╗
+║          RADIOLOGY REPORT - AI-ASSISTED INTERPRETATION                ║
+║          Medical Imaging Diagnostic Center                             ║
+╚═══════════════════════════════════════════════════════════════════════╝
+
+PATIENT STUDY INFORMATION:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Study Date: {datetime.now().strftime('%B %d, %Y at %H:%M:%S')}
+Examination: {imaging_type}
+AI Analysis Method: 3-Model Ensemble System
+Interpreting Physician: Dr. Sarah Mitchell, MD, FACR
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+{ai_report}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TECHNICAL SPECIFICATIONS:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AI Models Used: ResNet50, DenseNet121, EfficientNetB0
+Training Dataset: 51,632 medical images across 8 disease classes
+Validation Accuracy: 95-98% (ensemble performance)
+Analysis Method: Probability averaging across neural networks
+Report Generated By: {config.GEMINI_MODEL}
+
+IMPORTANT NOTICE:
+This interpretation utilizes AI-assisted analysis as a clinical decision
+support tool. The AI system has been trained on diverse medical imaging
+data and achieves high accuracy in validation studies. However, final
+diagnostic conclusions must integrate clinical presentation, laboratory
+findings, patient history, and professional judgment. This report should
+be reviewed by the ordering physician and correlated with clinical context.
+
+In cases of emergency or life-threatening findings, immediate clinical
+action should not be delayed pending this report.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+End of Report - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+    
+    return full_report
 
 def generate_huggingface_report(predictions):
     """Generate medical report using Hugging Face Inference API - Doctor-like professional report"""
@@ -837,6 +1183,20 @@ def health_check():
     densenet_loaded = unified_model.densenet_model is not None
     efficientnet_loaded = unified_model.efficientnet_model is not None
     
+    # Determine API info based on selected API
+    api_info = {
+        'selected_api': SELECTED_API,
+        'available': API_AVAILABLE,
+        'status': API_STATUS_MESSAGE
+    }
+    
+    if SELECTED_API == "gemini":
+        api_info['model'] = config.GEMINI_MODEL if API_AVAILABLE else None
+    elif SELECTED_API == "huggingface":
+        api_info['model'] = config.HUGGINGFACE_MODEL if API_AVAILABLE else None
+    else:
+        api_info['model'] = None
+    
     return jsonify({
         'status': 'healthy' if (resnet_loaded or densenet_loaded or efficientnet_loaded) else 'unhealthy',
         'models_loaded': {
@@ -844,18 +1204,38 @@ def health_check():
             'densenet121': densenet_loaded,
             'efficientnetb0': efficientnet_loaded
         },
-        'huggingface_api': {
-            'available': HUGGINGFACE_AVAILABLE,
-            'status': HF_STATUS_MESSAGE,
-            'model': config.HUGGINGFACE_MODEL if HUGGINGFACE_AVAILABLE else None
-        },
+        'report_generation_api': api_info,
         'num_classes': len(UNIFIED_CLASSES),
         'classes': UNIFIED_CLASSES
     })
 
+@app.route('/api/status')
+def api_status():
+    """Dedicated endpoint to check AI API status"""
+    status_info = {
+        'selected_api': SELECTED_API,
+        'available': API_AVAILABLE,
+        'status_message': API_STATUS_MESSAGE,
+        'report_mode': 'Template-Based (Fallback)'
+    }
+    
+    if SELECTED_API == "gemini" and API_AVAILABLE:
+        status_info['model_name'] = config.GEMINI_MODEL
+        status_info['report_mode'] = 'AI-Generated (Google Gemini)'
+        status_info['api_configured'] = config.GEMINI_API_KEY not in ["API_KEY_HERE", "", None]
+    elif SELECTED_API == "huggingface" and API_AVAILABLE:
+        status_info['model_name'] = config.HUGGINGFACE_MODEL
+        status_info['report_mode'] = 'AI-Generated (Hugging Face)'
+        status_info['api_configured'] = config.HUGGINGFACE_API_KEY not in ["API_KEY_HERE", "", None]
+    else:
+        status_info['model_name'] = None
+        status_info['api_configured'] = False
+    
+    return jsonify(status_info)
+
 @app.route('/api/huggingface/status')
 def huggingface_api_status():
-    """Dedicated endpoint to check Hugging Face API status"""
+    """Dedicated endpoint to check Hugging Face API status (legacy endpoint)"""
     # Re-validate in case status has changed
     is_valid, status_msg, _ = validate_huggingface_api()
     
@@ -958,24 +1338,41 @@ def validate_api_key():
             }), 500
 
 if __name__ == '__main__':
-    print("🚀 Starting Unified Medical Imaging Analysis Web Application...")
-    print(f"📂 Upload folder: {app.config['UPLOAD_FOLDER']}")
-    print(f"🤖 Models:")
+    print("\n" + "="*70)
+    print("🚀 Starting Unified Medical Imaging Analysis Web Application")
+    print("="*70)
+    print(f"\n📂 Upload folder: {app.config['UPLOAD_FOLDER']}")
+    print(f"\n🤖 Neural Network Models:")
     print(f"   • ResNet50: {'✓ Loaded' if unified_model.resnet_model else '✗ Not loaded'}")
     print(f"   • DenseNet121: {'✓ Loaded' if unified_model.densenet_model else '✗ Not loaded'}")
     print(f"   • EfficientNetB0: {'✓ Loaded' if unified_model.efficientnet_model else '✗ Not loaded'}")
-    print(f"🏥 Classes: {len(UNIFIED_CLASSES)} ({', '.join(UNIFIED_CLASSES)})")
-    print(f"\n🔗 Hugging Face API Status:")
-    print(f"   • Status: {'✓ VALID' if HUGGINGFACE_AVAILABLE else '✗ NOT AVAILABLE'}")
-    print(f"   • Message: {HF_STATUS_MESSAGE}")
-    if HUGGINGFACE_AVAILABLE:
+    print(f"\n🏥 Classification: {len(UNIFIED_CLASSES)} disease classes")
+    print(f"   Classes: {', '.join(UNIFIED_CLASSES)}")
+    
+    print(f"\n🤖 AI Report Generation:")
+    print(f"   • Selected API: {SELECTED_API.upper()}")
+    print(f"   • Status: {'✓ AVAILABLE' if API_AVAILABLE else '✗ NOT AVAILABLE'}")
+    print(f"   • Message: {API_STATUS_MESSAGE}")
+    
+    if SELECTED_API == "gemini" and API_AVAILABLE:
+        print(f"   • Model: {config.GEMINI_MODEL}")
+        print(f"   • Report Mode: AI-Generated (Google Gemini)")
+    elif SELECTED_API == "huggingface" and API_AVAILABLE:
         print(f"   • Model: {config.HUGGINGFACE_MODEL}")
         print(f"   • Report Mode: AI-Generated (Hugging Face)")
     else:
         print(f"   • Report Mode: Template-Based (Fallback)")
+    
     print(f"\n📡 API Endpoints:")
-    print(f"   • Health Check: http://localhost:5000/health")
-    print(f"   • HF API Status: http://localhost:5000/api/huggingface/status")
-    print(f"   • Validate API Key: http://localhost:5000/api/huggingface/validate (POST)")
-    print("🌐 Access the application at: http://localhost:5000")
+    print(f"   • Main Application: http://localhost:{config.PORT}")
+    print(f"   • Health Check: http://localhost:{config.PORT}/health")
+    print(f"   • API Status: http://localhost:{config.PORT}/api/status")
+    print(f"   • HF API Status: http://localhost:{config.PORT}/api/huggingface/status")
+    print(f"   • Validate HF Key: http://localhost:{config.PORT}/api/huggingface/validate (POST)")
+    
+    print("\n" + "="*70)
+    print(f"🌐 Access the application at: http://localhost:{config.PORT}")
+    print("="*70 + "\n")
+    
     app.run(debug=config.DEBUG, host=config.HOST, port=config.PORT)
+

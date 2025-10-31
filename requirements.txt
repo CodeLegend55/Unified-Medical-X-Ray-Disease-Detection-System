@@ -41,8 +41,13 @@ Flask>=2.3.0
 flask-cors>=4.0.0
 Werkzeug>=2.3.0
 
-# Hugging Face API (Optional - for enhanced medical reports)
+# AI API Integrations (Optional - for enhanced AI-generated medical reports)
+# Choose ONE of the following:
+# 1. Google Gemini API (Recommended - best performance and quality)
+google-generativeai>=0.3.0
+# 2. Hugging Face API (Alternative - access to open-source models)
 huggingface-hub>=0.20.0
+# Note: Both can be installed, configure which one to use in config.py
 requests>=2.31.0
 
 # Kaggle API (for dataset download)
