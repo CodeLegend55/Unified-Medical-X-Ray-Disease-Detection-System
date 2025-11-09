@@ -9,11 +9,9 @@ from datetime import datetime
 from werkzeug.utils import secure_filename
 import json
 import config
-import requests
 
-# ═══════════════════════════════════════════════════════════════════════════════
-# AI API VALIDATION FUNCTIONS
-# ═══════════════════════════════════════════════════════════════════════════════
+# Import our custom LLM
+from LLM.report_generator import MedicalReportGenerator
 
 def validate_gemini_api():
     """Validate Google Gemini API token and check if API is accessible"""
@@ -106,53 +104,20 @@ def validate_huggingface_api():
         else:
             return False, f"API validation failed: {error_msg}", None
 
-# Validate APIs on startup based on configuration
-SELECTED_API = config.REPORT_API.lower()
-API_AVAILABLE = False
-API_STATUS_MESSAGE = ""
-api_client = None
-
-print(f"\n🔧 Report Generation API: {SELECTED_API.upper()}")
+# Initialize custom LLM model for report generation
+print("\n🤖 Initializing Custom Medical Language Model")
 print("─" * 70)
 
-if SELECTED_API == "gemini":
-    GEMINI_AVAILABLE, GEMINI_STATUS_MESSAGE, gemini_client = validate_gemini_api()
-    API_AVAILABLE = GEMINI_AVAILABLE
-    API_STATUS_MESSAGE = GEMINI_STATUS_MESSAGE
-    api_client = gemini_client
-    
-    if GEMINI_AVAILABLE:
-        print(f"✓ Google Gemini API is valid and accessible")
-        print(f"  Model: {config.GEMINI_MODEL}")
-    else:
-        print(f"✗ Google Gemini API not available: {GEMINI_STATUS_MESSAGE}")
-        print(f"  Falling back to template-based report generation")
-        
-elif SELECTED_API == "huggingface":
-    HUGGINGFACE_AVAILABLE, HF_STATUS_MESSAGE, hf_client = validate_huggingface_api()
-    API_AVAILABLE = HUGGINGFACE_AVAILABLE
-    API_STATUS_MESSAGE = HF_STATUS_MESSAGE
-    api_client = hf_client
-    
-    if HUGGINGFACE_AVAILABLE:
-        print(f"✓ Hugging Face API is valid and accessible")
-        print(f"  Model: {config.HUGGINGFACE_MODEL}")
-    else:
-        print(f"✗ Hugging Face API not available: {HF_STATUS_MESSAGE}")
-        print(f"  Falling back to template-based report generation")
-        
-elif SELECTED_API == "fallback":
-    API_AVAILABLE = False
-    API_STATUS_MESSAGE = "Using template-based report generation (no API)"
-    print(f"ℹ️  Template-based report generation selected")
-    print(f"  No external API will be used")
-    
-else:
-    API_AVAILABLE = False
-    API_STATUS_MESSAGE = f"Unknown API: {SELECTED_API}"
-    print(f"⚠️  Unknown API configuration: {SELECTED_API}")
-    print(f"  Valid options: 'gemini', 'huggingface', 'fallback'")
-    print(f"  Falling back to template-based report generation")
+try:
+    # Test the LLM model initialization
+    report_generator = MedicalReportGenerator(model_path=config.LLM_MODEL_PATH)
+    print(f"✓ Custom LLM model loaded successfully")
+    print(f"  Model path: {config.LLM_MODEL_PATH}")
+    print(f"  Device: {report_generator.device}")
+except Exception as e:
+    print(f"✗ Error loading custom LLM model: {str(e)}")
+    print("  Please ensure the model files are present in the correct location")
+    raise
 
 print("─" * 70)
 
@@ -404,24 +369,79 @@ class UnifiedMedicalModel:
         except Exception as e:
             return None, f"Error during prediction: {str(e)}"
 
-def generate_medical_report(predictions):
-    """Generate medical report using selected AI API or fallback"""
-    
-    # Try selected API first if available
-    if API_AVAILABLE:
-        try:
-            if SELECTED_API == "gemini":
-                return generate_gemini_report(predictions)
-            elif SELECTED_API == "huggingface":
-                return generate_huggingface_report(predictions)
-        except Exception as e:
-            print(f"⚠️  {SELECTED_API.upper()} API generation failed: {e}")
-            print(f"  Falling back to template-based report")
-            import traceback
-            traceback.print_exc()
-    
-    # Use fallback report generation
-    return generate_fallback_report(predictions)
+def generate_medical_report(predictions, patient_info=None):
+    """Generate medical report using our custom trained LLM model"""
+    try:
+        # Initialize the report generator with our custom model
+        report_generator = MedicalReportGenerator(model_path=config.LLM_MODEL_PATH)
+        
+        # Get the diagnosis and confidence
+        ensemble = predictions.get('ensemble', predictions.get('resnet50', predictions.get('densenet121')))
+        diagnosis = ensemble['class']
+        confidence = ensemble['confidence']
+        
+        # Prepare model predictions with detailed analysis
+        model_consensus = []
+        if 'resnet50' in predictions:
+            model_consensus.append({
+                'model': 'ResNet50',
+                'prediction': predictions['resnet50']['class'],
+                'confidence': predictions['resnet50']['confidence']
+            })
+        if 'densenet121' in predictions:
+            model_consensus.append({
+                'model': 'DenseNet121',
+                'prediction': predictions['densenet121']['class'],
+                'confidence': predictions['densenet121']['confidence']
+            })
+        if 'efficientnetb0' in predictions:
+            model_consensus.append({
+                'model': 'EfficientNetB0',
+                'prediction': predictions['efficientnetb0']['class'],
+                'confidence': predictions['efficientnetb0']['confidence']
+            })
+        
+        # Prepare input for the LLM
+        input_data = {
+            'diagnosis': diagnosis,
+            'confidence': confidence,
+            'model_consensus': model_consensus,
+            'all_probabilities': ensemble['all_probabilities'],
+            'patient_info': patient_info or {},
+            'exam_type': 'Chest X-Ray' if diagnosis in CHEST_CONDITIONS else 'Bone X-Ray',
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # Generate report using our custom model
+        report = report_generator.generate_report(input_data)
+        
+        # Add report header and metadata
+        header = f"""╔══════════════════════════════════════════════════════════════════════╗
+║                    MEDICAL IMAGING ANALYSIS REPORT                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Date: {datetime.now().strftime('%B %d, %Y at %H:%M:%S')}
+Analysis Type: AI-Assisted Medical Image Interpretation
+Model: Ensemble Neural Network (ResNet50, DenseNet121, EfficientNetB0)
+Report Generation: Custom Medical Language Model
+
+"""
+        
+        footer = """
+═══════════════════════════════════════════════════════════════════════
+IMPORTANT NOTICE:
+This report is generated using advanced AI models specifically trained on
+medical imaging data. While highly accurate, all findings should be
+clinically correlated and validated by healthcare professionals.
+
+Report generated by Custom Medical Language Model
+═══════════════════════════════════════════════════════════════════════"""
+        
+        return header + report + footer
+        
+    except Exception as e:
+        print(f"Error in custom LLM report generation: {str(e)}")
+        raise  # Re-raise the exception to help with debugging
 
 def generate_gemini_report(predictions):
     """Generate medical report using Google Gemini API - Doctor-like professional report"""
@@ -1142,6 +1162,15 @@ def upload_file():
     
     if file and allowed_file(file.filename):
         try:
+            # Get patient information from the form
+            patient_info = {
+                'age': request.form.get('age'),
+                'gender': request.form.get('gender'),
+                'symptoms': request.form.get('symptoms'),
+                'medical_history': request.form.get('medical_history'),
+                'current_medications': request.form.get('current_medications')
+            }
+            
             filename = secure_filename(file.filename)
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
             filename = f"{timestamp}_{filename}"
@@ -1157,8 +1186,8 @@ def upload_file():
             if not predictions:
                 return jsonify({'error': 'Prediction failed'}), 500
             
-            # Generate medical report
-            report = generate_medical_report(predictions)
+            # Generate medical report with patient information
+            report = generate_medical_report(predictions, patient_info)
             
             result = {
                 'filename': filename,
@@ -1166,9 +1195,6 @@ def upload_file():
                 'report': report,
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             }
-            
-            # Clean up uploaded file after a delay (optional)
-            # You might want to keep files for review
             
             return jsonify(result)
             
@@ -1183,20 +1209,6 @@ def health_check():
     densenet_loaded = unified_model.densenet_model is not None
     efficientnet_loaded = unified_model.efficientnet_model is not None
     
-    # Determine API info based on selected API
-    api_info = {
-        'selected_api': SELECTED_API,
-        'available': API_AVAILABLE,
-        'status': API_STATUS_MESSAGE
-    }
-    
-    if SELECTED_API == "gemini":
-        api_info['model'] = config.GEMINI_MODEL if API_AVAILABLE else None
-    elif SELECTED_API == "huggingface":
-        api_info['model'] = config.HUGGINGFACE_MODEL if API_AVAILABLE else None
-    else:
-        api_info['model'] = None
-    
     return jsonify({
         'status': 'healthy' if (resnet_loaded or densenet_loaded or efficientnet_loaded) else 'unhealthy',
         'models_loaded': {
@@ -1204,7 +1216,7 @@ def health_check():
             'densenet121': densenet_loaded,
             'efficientnetb0': efficientnet_loaded
         },
-        'report_generation_api': api_info,
+        'report_generation': 'Custom fine-tuned LLM',
         'num_classes': len(UNIFIED_CLASSES),
         'classes': UNIFIED_CLASSES
     })
@@ -1348,27 +1360,7 @@ if __name__ == '__main__':
     print(f"   • EfficientNetB0: {'✓ Loaded' if unified_model.efficientnet_model else '✗ Not loaded'}")
     print(f"\n🏥 Classification: {len(UNIFIED_CLASSES)} disease classes")
     print(f"   Classes: {', '.join(UNIFIED_CLASSES)}")
-    
-    print(f"\n🤖 AI Report Generation:")
-    print(f"   • Selected API: {SELECTED_API.upper()}")
-    print(f"   • Status: {'✓ AVAILABLE' if API_AVAILABLE else '✗ NOT AVAILABLE'}")
-    print(f"   • Message: {API_STATUS_MESSAGE}")
-    
-    if SELECTED_API == "gemini" and API_AVAILABLE:
-        print(f"   • Model: {config.GEMINI_MODEL}")
-        print(f"   • Report Mode: AI-Generated (Google Gemini)")
-    elif SELECTED_API == "huggingface" and API_AVAILABLE:
-        print(f"   • Model: {config.HUGGINGFACE_MODEL}")
-        print(f"   • Report Mode: AI-Generated (Hugging Face)")
-    else:
-        print(f"   • Report Mode: Template-Based (Fallback)")
-    
-    print(f"\n📡 API Endpoints:")
-    print(f"   • Main Application: http://localhost:{config.PORT}")
-    print(f"   • Health Check: http://localhost:{config.PORT}/health")
-    print(f"   • API Status: http://localhost:{config.PORT}/api/status")
-    print(f"   • HF API Status: http://localhost:{config.PORT}/api/huggingface/status")
-    print(f"   • Validate HF Key: http://localhost:{config.PORT}/api/huggingface/validate (POST)")
+    print(f"\n🤖 Report Generation: Custom Fine-tuned LLM")
     
     print("\n" + "="*70)
     print(f"🌐 Access the application at: http://localhost:{config.PORT}")

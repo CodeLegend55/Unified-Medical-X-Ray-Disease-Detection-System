@@ -10,6 +10,44 @@
             padding: 0;
             box-sizing: border-box;
         }
+        
+        .patient-info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        
+        .patient-info h3 {
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #2c3e50;
+            font-weight: bold;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1em;
+        }
+        
+        .form-group textarea {
+            height: 100px;
+            resize: vertical;
+        }
 
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -268,32 +306,6 @@
             text-align: center;
         }
 
-        .api-status-banner {
-            padding: 15px;
-            border-radius: 5px;
-            margin: 20px 0;
-            text-align: center;
-            border: 2px solid;
-        }
-
-        .api-status-banner.valid {
-            background: #d5f4e6;
-            color: #27ae60;
-            border-color: #27ae60;
-        }
-
-        .api-status-banner.invalid {
-            background: #fadbd8;
-            color: #e74c3c;
-            border-color: #e74c3c;
-        }
-
-        .api-status-banner.loading {
-            background: #fef5e7;
-            color: #f39c12;
-            border-color: #f39c12;
-        }
-
         .image-preview {
             max-width: 300px;
             max-height: 300px;
@@ -330,17 +342,45 @@
                 ✨ <strong>3-Model Ensemble:</strong> ResNet50 + DenseNet121 + EfficientNetB0 trained on 39,818+ images across chest conditions, fractures, and bone diseases
             </div>
 
-            <div class="api-status-banner loading" id="apiStatusBanner">
-                <span id="apiStatusIcon">⏳</span> <strong>Checking Hugging Face API status...</strong>
-                <div id="apiStatusText" style="margin-top: 5px; font-size: 0.9em;"></div>
-            </div>
-
             <div class="upload-section">
                 <div class="upload-area" id="uploadArea">
                     <div class="upload-icon">📱</div>
                     <div class="upload-text">Drop your X-ray image here</div>
                     <div class="upload-subtext">Upload your X-ray image for unified analysis<br>(PNG, JPG, JPEG - Max 16MB)</div>
                     <input type="file" id="fileInput" accept=".png,.jpg,.jpeg" />
+                </div>
+                
+                <div class="patient-info">
+                    <h3>Patient Information</h3>
+                    <div class="form-group">
+                        <label for="age">Age:</label>
+                        <input type="number" id="age" name="age" min="0" max="120">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="gender">Gender:</label>
+                        <select id="gender" name="gender">
+                            <option value="">Select gender</option>
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="symptoms">Current Symptoms:</label>
+                        <textarea id="symptoms" name="symptoms" placeholder="Describe current symptoms..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="medical_history">Medical History:</label>
+                        <textarea id="medical_history" name="medical_history" placeholder="Past medical conditions, surgeries, etc..."></textarea>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="current_medications">Current Medications:</label>
+                        <textarea id="current_medications" name="current_medications" placeholder="List current medications..."></textarea>
+                    </div>
                 </div>
                 
                 <button class="btn" onclick="document.getElementById('fileInput').click()">
@@ -488,9 +528,16 @@
             document.getElementById('results').style.display = 'none';
             document.getElementById('analyzeBtn').disabled = true;
 
-            // Create form data
+            // Create form data with patient information
             const formData = new FormData();
             formData.append('file', selectedFile);
+            
+            // Add patient information
+            formData.append('age', document.getElementById('age').value);
+            formData.append('gender', document.getElementById('gender').value);
+            formData.append('symptoms', document.getElementById('symptoms').value);
+            formData.append('medical_history', document.getElementById('medical_history').value);
+            formData.append('current_medications', document.getElementById('current_medications').value);
 
             // Send request
             fetch('/upload', {
@@ -678,51 +725,11 @@
                         .join(', ');
                     console.warn(`Warning: Only ${modelCount}/3 models loaded: ${loadedModels}`);
                 }
-
-                // Update Hugging Face API status
-                updateApiStatus(data.huggingface_api);
             })
             .catch(error => {
                 console.error('Could not check server health:', error);
-                updateApiStatus({available: false, status: 'Server connection failed'});
             });
 
-        function updateApiStatus(hfApiData) {
-            const banner = document.getElementById('apiStatusBanner');
-            const icon = document.getElementById('apiStatusIcon');
-            const text = document.getElementById('apiStatusText');
-
-            if (hfApiData.available) {
-                banner.className = 'api-status-banner valid';
-                icon.textContent = '✓';
-                text.innerHTML = `Hugging Face API is active. Using <strong>${hfApiData.model}</strong> for AI-generated medical reports.`;
-            } else {
-                banner.className = 'api-status-banner invalid';
-                icon.textContent = '⚠';
-                text.innerHTML = `Hugging Face API not available: ${hfApiData.status}<br>Using template-based medical reports instead.`;
-            }
-        }
-
-        // Function to refresh API status
-        function refreshApiStatus() {
-            const banner = document.getElementById('apiStatusBanner');
-            banner.className = 'api-status-banner loading';
-            document.getElementById('apiStatusIcon').textContent = '⏳';
-            document.getElementById('apiStatusText').textContent = 'Checking API status...';
-
-            fetch('/api/huggingface/status')
-                .then(response => response.json())
-                .then(data => {
-                    updateApiStatus({
-                        available: data.api_valid,
-                        status: data.status_message,
-                        model: data.model_name
-                    });
-                })
-                .catch(error => {
-                    updateApiStatus({available: false, status: 'Connection error'});
-                });
-        }
     </script>
 </body>
 </html>

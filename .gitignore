@@ -11,5 +11,11 @@ uploads/
 #cache files
 __pycache__/
 
-#this file
-.gitignore
+LLM/__pycache__/
+LLM/logs/
+LLM/medical_report_model/
+LLM/results/
+LLM/medical_report_dataset.json
+LLM/training.log
+
+
